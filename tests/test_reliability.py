@@ -80,6 +80,19 @@ def test_incremental_retries_failed_activity_detail_and_range(store, settings):
     assert hrv(store, "2026-08-15") == 72
 
 
+def test_time_series_backfilled_for_activities_synced_before_it_existed(store, settings):
+    # Simulates activities stored before the activity_details endpoint was added.
+    g = FakeGarmin({"2026-08-10": [1]}, fail={"get_activity_details"})
+    sync(g, store, settings, date(2026, 8, 1), date(2026, 8, 31), today=TODAY)
+    assert store.con.execute("SELECT count(*) FROM activity_sample").fetchone()[0] == 0
+    g.fail.clear()
+    g.calls.clear()
+    start, end = incremental_window(store, settings, today=TODAY)
+    sync(g, store, settings, start, end, fill_gaps=True, today=TODAY)
+    assert g.calls.count("get_activity_details") == 1
+    assert store.con.execute("SELECT count(*) FROM activity_sample").fetchone()[0] == 5
+
+
 def test_aborted_run_leaves_retryable_gaps(store, settings):
     from garminconnect import GarminConnectAuthenticationError
 
