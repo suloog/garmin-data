@@ -18,28 +18,104 @@ def test_format_helpers():
     assert web.fmt_num(None) == ""
 
 
-def test_list_and_render(store, settings):
+def _sync_days(store, settings, days: dict[str, list[int]]) -> None:
     sync(
-        FakeGarmin({"2026-09-02": [1], "2026-09-05": [2]}),
+        FakeGarmin(days),
         store,
         settings,
         date(2026, 9, 1),
-        date(2026, 9, 10),
+        date(2026, 9, 28),
         today=date(2026, 9, 30),
     )
-    rows = web.list_activities(store.con)
-    assert [r["activity_id"] for r in rows] == [2, 1]  # newest first
-    assert web.list_activities(store.con, date_from=date(2026, 9, 3))[0]["activity_id"] == 2
-    assert web.list_activities(store.con, activity_type="cycling") == []
-    page = web.render_page(rows, web.activity_types(store.con), None, None, None)
+
+
+def test_list_and_render(store, settings):
+    _sync_days(store, settings, {"2026-09-02": [1], "2026-09-05": [2]})
+    result = web.query_activities(store.con, web.ActivityQuery())
+    assert [r["activity_id"] for r in result.rows] == [2, 1]  # newest first
+    assert result.total == 2 and result.pages == 1
+    q = web.ActivityQuery(date_from=date(2026, 9, 3))
+    assert [r["activity_id"] for r in web.query_activities(store.con, q).rows] == [2]
+    q = web.ActivityQuery(activity_type="cycling")
+    assert web.query_activities(store.con, q).rows == []
+    page = web.render_page(result, web.activity_types(store.con))
     assert "2 activities" in page and "8.00 km" in page and "5:00 /km" in page
+    assert 'class="pager"' not in page  # a single page needs no pager
+
+
+def test_pagination_reads_one_page_with_totals_over_all(store, settings):
+    # Two activities per day at the same time (ties break on activity_id).
+    days = {f"2026-09-{d:02d}": [2 * d - 1, 2 * d] for d in range(1, 29)}
+    _sync_days(store, settings, days)
+    total = 2 * len(days)
+    result = web.query_activities(store.con, web.ActivityQuery(page=2, per_page=25))
+    assert [r["activity_id"] for r in result.rows] == list(range(total - 25, total - 50, -1))
+    assert result.total == total and result.pages == 3
+    km = store.con.execute("SELECT sum(distance_m) FROM activity").fetchone()[0]
+    assert result.total_distance_m == km  # totals cover every page
+    # Out-of-range pages clamp; unknown page sizes fall back to the default.
+    last = web.query_activities(store.con, web.ActivityQuery(page=99, per_page=25))
+    assert last.query.page == 3 and [r["activity_id"] for r in last.rows] == [6, 5, 4, 3, 2, 1]
+    assert web.query_activities(store.con, web.ActivityQuery(per_page=7)).query.per_page == 50
+    page = web.render_page(result, [])
+    assert 'class="pager"' in page and f"26–50 of {total}" in page
+    assert 'href="?page=3&amp;per=25"' in page and 'href="?per=25"' in page  # page 1
+
+
+def test_sorting(store, settings):
+    _sync_days(store, settings, {"2026-09-02": [1], "2026-09-05": [2], "2026-09-07": [3]})
+    store.con.execute("UPDATE activity SET distance_m = NULL WHERE activity_id = 3")
+    store.con.execute("UPDATE activity SET distance_m = 5000 WHERE activity_id = 1")
+    store.con.execute("UPDATE activity SET distance_m = 9000 WHERE activity_id = 2")
+
+    def ids(**kw):
+        result = web.query_activities(store.con, web.ActivityQuery(**kw))
+        return [r["activity_id"] for r in result.rows]
+
+    assert ids(sort="distance", desc=True) == [2, 1, 3]  # NULLs last either way
+    assert ids(sort="distance", desc=False) == [1, 2, 3]
+    assert ids(sort="date", desc=False) == [1, 2, 3]
+    assert ids(sort="bogus; DROP TABLE activity") == [3, 2, 1]  # not whitelisted -> date
+
+    result = web.query_activities(store.con, web.ActivityQuery(sort="distance", desc=True))
+    page = web.render_page(result, [])
+    assert "Distance ▼" in page
+    assert 'href="?sort=distance&amp;dir=asc"' in page  # clicking again flips direction
+    assert 'href="?sort=duration"' in page  # other columns use their default direction
+
+
+def test_search(store, settings):
+    _sync_days(store, settings, {"2026-09-02": [1], "2026-09-05": [2]})
+    store.con.execute("UPDATE activity SET activity_name = 'Tempo 10_k' WHERE activity_id = 2")
+
+    def ids(search):
+        q = web.ActivityQuery(search=search)
+        return [r["activity_id"] for r in web.query_activities(store.con, q).rows]
+
+    assert ids("tempo") == [2]  # case-insensitive
+    assert ids("RUNN") == [2, 1]  # matches the type too
+    assert ids("0_k") == [2] and ids("0%k") == []  # LIKE wildcards are literal
+
+
+def test_parse_query():
+    q = web.parse_query(
+        {"type": ["running"], "sort": ["name"], "page": ["x"], "per": ["100"], "q": ["  a  "]},
+        ["running"],
+    )
+    assert q == web.ActivityQuery(
+        activity_type="running", search="a", sort="name", desc=False, page=1, per_page=100
+    )
+    q = web.parse_query({"type": ["nope"], "sort": ["evil"], "dir": ["asc"]}, ["running"])
+    assert q.activity_type is None and q.sort == "date" and q.desc is False
 
 
 def test_render_escapes_html():
     row = {k: None for k in web._COLUMNS.replace(" ", "").split(",")}
     row["activity_name"] = "<script>alert(1)</script>"
-    page = web.render_page([row], [], None, None, None)
+    result = web.ActivityPage([row], 1, 0, 0, web.ActivityQuery(search="<b>"))
+    page = web.render_page(result, [])
     assert "<script>alert" not in page and "&lt;script&gt;" in page
+    assert "<b>" not in page
 
 
 def test_server_serves_page_read_only(store, settings):
@@ -56,7 +132,8 @@ def test_server_serves_page_read_only(store, settings):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         base = f"http://127.0.0.1:{server.server_address[1]}"
-        body = urllib.request.urlopen(f"{base}/?type=running&from=bad").read().decode()
+        query = "type=running&from=bad&sort=load&page=9&per=abc"
+        body = urllib.request.urlopen(f"{base}/?{query}").read().decode()
         assert "1 activity ·" in body
         try:
             urllib.request.urlopen(f"{base}/nope")
