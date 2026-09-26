@@ -79,7 +79,15 @@ uv run garmin-data sync --from 2026-09-01 --to 2026-09-25 --fill-gaps
 uv run garmin-data status                   # what is stored, runs, gaps, recent errors
 uv run garmin-data rebuild                  # rebuild normalized tables from raw (offline, atomic)
 uv run garmin-data export --format parquet  # or csv; to <data_dir>/exports
+uv run garmin-data web                      # activity list at http://127.0.0.1:8765/
 ```
+
+`garmin-data web` is a minimal, read-only local view: a table of activities
+(newest first) with distance, duration, pace or speed, HR, cadence, elevation,
+training effect and load, and Garmin RPE/feel, filterable by type and date. It
+uses only the Python standard library, binds to localhost by default and has no
+authentication, so don't expose it on a network (`--host`/`--port` to change).
+If a sync holds the database lock, the page asks you to retry.
 
 Syncing is idempotent: a range can be synced any number of times without
 creating duplicates. Already-stored data is skipped, except for the last few days

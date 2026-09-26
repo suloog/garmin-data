@@ -162,6 +162,20 @@ def cmd_export(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_web(settings: Settings, args: argparse.Namespace) -> int:
+    from .web import serve
+
+    if not settings.db_path.exists():
+        print(f"No database yet at {settings.db_path}. Run `garmin-data sync`.", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        serve(settings.db_path, args.host, args.port)
+    except OSError as e:
+        print(f"Cannot start web server on {args.host}:{args.port}: {e}", file=sys.stderr)
+        return EXIT_ABORTED
+    return EXIT_OK
+
+
 def cmd_note(settings: Settings, args: argparse.Namespace) -> int:
     fields = {k: getattr(args, k, None) for k in ann.FIELDS}
     with Store(settings.db_path) as store:
@@ -221,6 +235,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--format", choices=("parquet", "csv"), default="parquet")
     p.add_argument("--out", help="output directory (default: <data_dir>/exports)")
 
+    p = sub.add_parser("web", help="local read-only web view of activities")
+    p.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
+    p.add_argument("--port", type=int, default=8765)
+
     p = sub.add_parser("note", help="manual training annotations")
     note = p.add_subparsers(dest="note_cmd", required=True)
     add = note.add_parser("add")
@@ -245,6 +263,7 @@ COMMANDS = {
     "status": cmd_status,
     "export": cmd_export,
     "note": cmd_note,
+    "web": cmd_web,
 }
 
 
