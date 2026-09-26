@@ -6,7 +6,7 @@ Values are made up; only key names and nesting match Garmin responses.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 WORKOUT_ID = 111
 
@@ -138,6 +138,44 @@ def typed_splits(aid: int) -> dict:
     }
 
 
+def details(aid: int, day: str, n: int = 5) -> dict:
+    """Time series with ``n`` samples 10 s apart at 3.33 m/s."""
+    keys = [
+        "sumDuration",
+        "directHeartRate",
+        "directTimestamp",
+        "sumDistance",
+        "directSpeed",
+        "directDoubleCadence",
+        "directElevation",
+        "directStrideLength",
+    ]
+    start_ms = int(datetime.fromisoformat(f"{day}T05:00:00+00:00").timestamp() * 1000)
+    return {
+        "activityId": aid,
+        "metricDescriptors": [
+            {"metricsIndex": i, "key": k, "unit": {"key": "x"}} for i, k in enumerate(keys)
+        ],
+        "activityDetailMetrics": [
+            {
+                "metrics": [
+                    10.0 * i,
+                    130.0 + i,
+                    float(start_ms + 10_000 * i),
+                    33.3 * i,
+                    3.33,
+                    170.0,
+                    100.0 + i,
+                    110.0,
+                ]
+            }
+            for i in range(n)
+        ],
+        "geoPolylineDTO": None,
+        "detailsAvailable": True,
+    }
+
+
 HR_ZONES = [
     {"zoneNumber": 1, "secsInZone": 100.0, "zoneLowBoundary": 110},
     {"zoneNumber": 2, "secsInZone": 900.0, "zoneLowBoundary": 130},
@@ -263,6 +301,9 @@ class FakeGarmin:
 
     def get_activity_gear(self, aid):
         return self._call("get_activity_gear", GEAR, aid)
+
+    def get_activity_details(self, aid, maxchart=2000, maxpoly=4000):
+        return self._call("get_activity_details", details(int(aid), self._day_of(int(aid))), aid)
 
     def get_workout_by_id(self, wid):
         return self._call("get_workout_by_id", workout(), wid)

@@ -30,6 +30,7 @@ ACTIVITY_TYPED_SPLITS = "activity_typed_splits"
 ACTIVITY_HR_ZONES = "activity_hr_zones"
 ACTIVITY_WEATHER = "activity_weather"
 ACTIVITY_GEAR = "activity_gear"
+ACTIVITY_DETAILS = "activity_details"  # time series (HR, speed, cadence, ...)
 WORKOUT = "workout"  # key: workout id
 DEVICES = "devices"  # key: 'all'
 USER_SUMMARY = "user_summary"  # key: 'YYYY-MM-DD'
@@ -47,6 +48,13 @@ ACTIVITY_DETAIL_METHODS = {
     ACTIVITY_HR_ZONES: "get_activity_hr_in_timezones",
     ACTIVITY_WEATHER: "get_activity_weather",
     ACTIVITY_GEAR: "get_activity_gear",
+    ACTIVITY_DETAILS: "get_activity_details",
+}
+# Extra arguments per activity detail endpoint. Time series are downsampled by
+# Garmin to at most maxchart points; maxpoly=0 skips the GPS polyline, which
+# is large and duplicates the lat/lon already present in the samples.
+ACTIVITY_DETAIL_ARGS: dict[str, tuple[Any, ...]] = {
+    ACTIVITY_DETAILS: (2000, 0),
 }
 PER_DAY_METHODS = {
     USER_SUMMARY: "get_user_summary",
@@ -132,7 +140,8 @@ def fetch_day(g: Garmin, f: Fetcher, endpoint: str, day: date) -> Any:
 
 
 def fetch_activity_detail(g: Garmin, f: Fetcher, endpoint: str, aid: str) -> Any:
-    return f.fetch(endpoint, aid, getattr(g, ACTIVITY_DETAIL_METHODS[endpoint]), aid)
+    fn = getattr(g, ACTIVITY_DETAIL_METHODS[endpoint])
+    return f.fetch(endpoint, aid, fn, aid, *ACTIVITY_DETAIL_ARGS.get(endpoint, ()))
 
 
 def fetch_workout(g: Garmin, f: Fetcher, workout_id: str) -> Any:

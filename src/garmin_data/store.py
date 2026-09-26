@@ -16,8 +16,10 @@ import duckdb
 
 def _migrations() -> list[str]:
     """Ordered list of migration scripts; index + 1 == schema version."""
-    v1 = resources.files("garmin_data").joinpath("schema.sql").read_text(encoding="utf-8")
-    return [v1]
+    pkg = resources.files("garmin_data")
+    return [
+        pkg.joinpath(name).read_text(encoding="utf-8") for name in ("schema.sql", "schema_v2.sql")
+    ]
 
 
 def canonical_json(payload: Any) -> str:
