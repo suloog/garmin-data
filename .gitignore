@@ -1,0 +1,32 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local configuration (may contain personal paths)
+config.toml
+.env
+
+# Garmin auth / session state — never commit
+garmin_tokens.json
+.garminconnect/
+tokens/
+
+# Local data — never commit personal training data
+data/
+probe_output/
+*.duckdb
+*.duckdb.wal
+*.parquet
+exports/
+*.fit
+
+# IDE
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,286 @@
+I want to build a local project for long-term collection and analysis of Garmin Connect training data.
+
+Context:
+- Python + uv
+- Garmin access via python-garminconnect
+- the goal is NOT to analyze every single workout immediately after it happens; for that I will often use Garmin screenshots
+- the goal of this project is to build a reliable historical dataset for analysis across weeks, months, and training cycles
+- I want a simple, extensible architecture rather than a full Garmin Connect clone
+- the project may eventually become open source, so keep the implementation reasonably generic and avoid hard-coding assumptions specific to one user
+
+Design and implement V1.
+
+## V1 scope
+
+### 1. Activities
+
+For each activity, store at least:
+
+- activity_id
+- date
+- start_time
+- timezone, if available
+- activity_type
+- activity_name
+- distance
+- duration
+- moving_time
+- elapsed_time
+- avg_pace
+- best_pace
+- avg_hr
+- max_hr
+- HR zones / time in zones
+- avg_cadence
+- max_cadence
+- avg_stride_length, if available
+- elevation_gain
+- elevation_loss
+- avg_power, if available
+- max_power, if available
+- aerobic_training_effect
+- anaerobic_training_effect
+- training_load
+- calories
+- weather / temperature, if easily available
+- device / gear, if easily available
+
+Do not assume that every field exists for every activity.
+
+### 2. Laps / workout steps / intervals
+
+This is important.
+
+I want a separate structure for laps / workout steps so that later it is possible to compare things like:
+- threshold intervals
+- 400–600 m repeats
+- long-run segments
+- recovery intervals
+- warmups and cooldowns
+
+For each lap / step, store:
+
+- activity_id
+- sequence
+- step_type, if it can be determined:
+  - warmup
+  - work
+  - recovery
+  - cooldown
+  - unknown
+- repeat_group, if available
+- start_time
+- duration
+- distance
+- avg_pace
+- avg_hr
+- max_hr
+- avg_cadence
+- max_cadence
+- avg_power, if available
+- max_power, if available
+- elevation_gain/loss, if available
+
+If Garmin does not provide a reliable workout-step classification, store what the API actually returns and do not invent classifications aggressively.
+
+### 3. Daily recovery / health
+
+For every day, including days without training, store at least:
+
+- date
+- resting_hr
+- HRV nightly average
+- HRV status
+- sleep duration
+- sleep score
+- deep sleep
+- light sleep
+- REM sleep
+- awake time
+- Body Battery
+- Training Readiness
+- recovery time
+- stress, if available
+- steps
+- active calories
+- resting calories
+- total calories
+- weight
+- Garmin VO2max, if available
+
+If Garmin exposes Training Readiness components or additional useful recovery fields, it is fine to store them, but do not overcomplicate the core schema because of them.
+
+### 4. Manual annotations
+
+Add a simple way to store manual training notes.
+
+Minimum fields:
+
+- activity_id or date
+- rpe
+- fatigue
+- legs
+- motivation
+- soreness_or_pain
+- notes
+
+These fields must be independent from Garmin data and must never be overwritten by synchronization.
+
+### 5. Raw storage
+
+Important:
+
+For every Garmin endpoint used by the project, preserve the full raw JSON response.
+
+The purpose is to allow the normalized schema to evolve later without requiring historical data to be downloaded again.
+
+Treat raw source data as immutable source-of-truth data:
+- append where appropriate
+- replace only by stable source identifier when necessary
+- never manually mutate raw Garmin payloads
+
+## Architecture
+
+Prefer simplicity.
+
+Possible storage choices:
+- DuckDB
+- SQLite
+- Parquet
+- or a sensible combination
+
+Do not use CSV as the primary source of truth unless there is a strong reason.
+CSV may be supported as an export format.
+
+Requirements:
+- simple schema / data model
+- idempotent synchronization
+- support syncing a specific date range
+- support incremental sync later
+- sensible error logging
+- tolerate missing fields and payload changes
+- avoid duplicates when syncing repeatedly
+- preserve raw payloads
+- keep normalized tables easy to query from Python and SQL
+
+### Suggested data layers
+
+Prefer a structure similar to:
+
+raw Garmin data
+    ↓
+normalized local storage
+    ↓
+derived analytics
+
+Do not mix derived metrics into the raw/normalized layers unless they are clearly marked as derived.
+
+## CLI
+
+Add a simple CLI, for example:
+
+uv run garmin-data sync --from 2026-08-01 --to 2026-09-25
+
+and:
+
+uv run garmin-data sync
+
+where the no-argument version syncs missing or recent data incrementally.
+
+Optional commands:
+
+uv run garmin-data status
+uv run garmin-data export
+
+Only add them if they remain simple.
+
+## Authentication
+
+Use the recommended python-garminconnect token/session cache approach.
+
+Do not store username or password in the repository.
+
+Add:
+- .gitignore
+- example configuration
+- README instructions for first login
+- README instructions for reusing cached authentication/session state
+
+Authentication/session files must be excluded from git by default.
+
+## Open-source friendliness
+
+Assume this repository may become public.
+
+Please:
+- avoid hard-coded local usernames, paths, dates, or personal values in library code
+- make the storage location configurable
+- keep credentials and session data outside version control
+- keep configuration generic
+- separate reusable library code from CLI code
+- add type hints where practical
+- add docstrings where useful
+- keep dependencies minimal
+- choose a permissive project structure suitable for publishing later
+- add a sensible LICENSE placeholder or mention that licensing still needs to be chosen
+- add a clean README explaining what the project does and does not do
+
+Do not publish or initialize a remote repository.
+
+## Out of scope for V1
+
+Do NOT implement yet:
+
+- custom fitness/fatigue models
+- custom readiness scores
+- race-performance prediction
+- automatic training recommendations
+- advanced FIT parsing
+- per-second time-series processing
+- dashboards
+- web apps
+- complex data warehouse architecture
+- machine learning
+- excessive abstraction
+
+However, design the project so FIT files / per-second time-series can be added later without rebuilding everything.
+
+## Important implementation rule
+
+Do not guess python-garminconnect method names or payload structures.
+
+First inspect:
+- the installed/current version of python-garminconnect
+- its available methods
+- actual payloads where safely possible
+- upstream source code if needed
+
+If a data source is unavailable or unstable:
+- document it in the README
+- implement a graceful fallback
+- do not block the entire sync because of one missing endpoint or field
+
+## Definition of done
+
+V1 is complete when:
+
+1. the project works with uv
+2. Garmin authentication works
+3. a user can sync a selected date range
+4. activities are stored in local normalized storage
+5. laps / intervals are stored separately
+6. daily recovery data is stored separately
+7. raw Garmin JSON responses are preserved
+8. repeated syncs do not create duplicates
+9. manual annotations are never overwritten
+10. README explains installation, authentication, sync, storage layout, and current limitations
+11. no personal credentials or user-specific secrets are committed
+12. the architecture is simple enough to maintain and generic enough to potentially open-source later
+
+Before implementation:
+1. inspect python-garminconnect
+2. propose a short architecture and schema
+3. call out any Garmin data limitations you discover
+4. then implement V1
+
+Do not expand the project beyond this scope unless required to make V1 reliable.

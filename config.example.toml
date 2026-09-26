@@ -1,0 +1,24 @@
+# Copy to ./config.toml or ~/.config/garmin-data/config.toml (both are gitignored /
+# outside the repo). Every value is optional; environment variables win:
+#   GARMIN_DATA_DIR, GARMINTOKENS, GARMIN_DATA_CONFIG
+
+[storage]
+# Where garmin.duckdb, exports/ and the log file live.
+data_dir = "~/.local/share/garmin-data"
+
+[auth]
+# Directory holding garmin_tokens.json (python-garminconnect session cache).
+tokenstore = "~/.garminconnect"
+# Set to true for accounts on connect.garmin.cn
+is_cn = false
+
+[sync]
+# Pause between API requests, seconds. Be gentle with Garmin.
+request_delay_s = 0.5
+# `sync` without arguments re-fetches this many days before the last synced day,
+# because Garmin revises recent sleep / HRV / readiness values.
+incremental_overlap_days = 3
+# First `sync` without arguments on an empty database covers this many days.
+initial_sync_days = 30
+# A missing item (failed request) is retried by later syncs up to this many times.
+max_fetch_attempts = 3
