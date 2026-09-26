@@ -84,7 +84,9 @@ uv run garmin-data web                      # activity list at http://127.0.0.1:
 
 `garmin-data web` is a minimal, read-only local view: a table of activities
 (newest first) with distance, duration, pace or speed, HR, cadence, elevation,
-training effect and load, and Garmin RPE/feel, filterable by type and date. It
+training effect and load, and Garmin RPE/feel. Search (name or type), filters
+(type, date range), column sorting and pagination all run in SQL, so only the
+current page is read from the database; the summary totals cover every match. It
 uses only the Python standard library, binds to localhost by default and has no
 authentication, so don't expose it on a network (`--host`/`--port` to change).
 If a sync holds the database lock, the page asks you to retry.
