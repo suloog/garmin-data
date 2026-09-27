@@ -203,15 +203,19 @@ def smooth(xs: list[float], ys: list[float | None], window_s: float) -> list[flo
     return out
 
 
+Interval = tuple[float, float, tuple[float, ...], tuple[float, ...]]
+
+
 def _intervals(
     samples: list[dict[str, Any]], keys: tuple[str, ...], min_speed: float = 0.0
-) -> list[tuple[float, float, tuple[float, ...]]]:
-    """(start, end, values) per interval between consecutive samples, in timer time.
+) -> list[Interval]:
+    """(start, end, start values, end values) per pair of consecutive samples,
+    in timer time.
 
     Garmin's samples are not evenly spaced, so derived means are integrated
-    over time: each interval carries the average of its two end samples
-    (trapezoid rule). Intervals where either end lacks a value or is below
-    ``min_speed`` (standing, walking) are left out.
+    over time, with values linear between samples (trapezoid rule). Intervals
+    where either end lacks a value or is below ``min_speed`` (standing,
+    walking) are left out.
     """
 
     def ok(s: dict[str, Any]) -> bool:
@@ -221,12 +225,15 @@ def _intervals(
             and (s["speed_mps"] or 0) >= min_speed
         )
 
-    out = []
-    for x, y in zip(samples, samples[1:], strict=False):
-        if ok(x) and ok(y) and y["timer_s"] > x["timer_s"]:
-            values = tuple((x[k] + y[k]) / 2 for k in keys)
-            out.append((x["timer_s"], y["timer_s"], values))
-    return out
+    return [
+        (x["timer_s"], y["timer_s"], tuple(x[k] for k in keys), tuple(y[k] for k in keys))
+        for x, y in zip(samples, samples[1:], strict=False)
+        if ok(x) and ok(y) and y["timer_s"] > x["timer_s"]
+    ]
+
+
+def _integral(t0: float, t1: float, v0: tuple[float, ...], v1: tuple[float, ...]) -> list[float]:
+    return [(t1 - t0) * (a + b) / 2 for a, b in zip(v0, v1, strict=True)]
 
 
 def decoupling(samples: list[dict[str, Any]]) -> float | None:
@@ -236,31 +243,37 @@ def decoupling(samples: list[dict[str, Any]]) -> float | None:
     intervals = [
         iv
         for iv in _intervals(samples, ("speed_mps", "heart_rate"), _MIN_PACE_SPEED)
-        if iv[2][1] > 0
+        if iv[2][1] > 0 and iv[3][1] > 0
     ]
-    total = sum(t1 - t0 for t0, t1, _ in intervals)
+    total = sum(t1 - t0 for t0, t1, _, _ in intervals)
     if total < 1200:
         return None
-    # Split at half of the moving time; the interval crossing it is divided.
-    halves = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]  # duration, speed*s, hr*s
+    # Integrals of speed and HR per half of the moving time. The interval
+    # crossing the midpoint is split at an interpolated value.
+    halves = [[0.0, 0.0], [0.0, 0.0]]
     elapsed = 0.0
-    for t0, t1, (speed, hr) in intervals:
+    for t0, t1, v0, v1 in intervals:
         dt = t1 - t0
         first = min(dt, max(0.0, total / 2 - elapsed))
-        for half, part in ((halves[0], first), (halves[1], dt - first)):
-            half[0] += part
-            half[1] += speed * part
-            half[2] += hr * part
+        f = first / dt
+        vm = tuple(a + (b - a) * f for a, b in zip(v0, v1, strict=True))
+        tm = t0 + first
+        for half, part in (
+            (halves[0], _integral(t0, tm, v0, vm)),
+            (halves[1], _integral(tm, t1, vm, v1)),
+        ):
+            half[0] += part[0]
+            half[1] += part[1]
         elapsed += dt
-    ef1, ef2 = (h[1] / h[2] for h in halves)
+    ef1, ef2 = (speed / hr for speed, hr in halves)
     return (ef1 - ef2) / ef1 * 100
 
 
 def mean_of(samples: list[dict[str, Any]], key: str, min_speed: float = 0.0) -> float | None:
     """Time-weighted mean of ``key`` over intervals with speed >= ``min_speed``."""
     intervals = _intervals(samples, (key,), min_speed)
-    total = sum(t1 - t0 for t0, t1, _ in intervals)
-    return sum((t1 - t0) * v for t0, t1, (v,) in intervals) / total if total else None
+    total = sum(t1 - t0 for t0, t1, _, _ in intervals)
+    return sum(_integral(*iv)[0] for iv in intervals) / total if total else None
 
 
 def lap_bands(
