@@ -203,64 +203,30 @@ def smooth(xs: list[float], ys: list[float | None], window_s: float) -> list[flo
     return out
 
 
-def _intervals(
-    samples: list[dict[str, Any]], keys: tuple[str, ...], min_speed: float = 0.0
-) -> list[tuple[float, float, tuple[float, ...]]]:
-    """(start, end, values) per interval between consecutive samples, in timer time.
-
-    Garmin's samples are not evenly spaced, so derived means are integrated
-    over time: each interval carries the average of its two end samples
-    (trapezoid rule). Intervals where either end lacks a value or is below
-    ``min_speed`` (standing, walking) are left out.
-    """
-
-    def ok(s: dict[str, Any]) -> bool:
-        return (
-            s["timer_s"] is not None
-            and all(s[k] is not None for k in keys)
-            and (s["speed_mps"] or 0) >= min_speed
-        )
-
-    out = []
-    for x, y in zip(samples, samples[1:], strict=False):
-        if ok(x) and ok(y) and y["timer_s"] > x["timer_s"]:
-            values = tuple((x[k] + y[k]) / 2 for k in keys)
-            out.append((x["timer_s"], y["timer_s"], values))
-    return out
-
-
 def decoupling(samples: list[dict[str, Any]]) -> float | None:
     """Pa:HR aerobic decoupling in percent: how much the speed/HR ratio drops
-    from the first to the second half (by moving timer time). Only meaningful
-    for steady efforts; None if there is too little data (< 20 min moving)."""
-    intervals = [
-        iv
-        for iv in _intervals(samples, ("speed_mps", "heart_rate"), _MIN_PACE_SPEED)
-        if iv[2][1] > 0
+    from the first to the second half (by timer time). Only meaningful for
+    steady efforts; None if there is too little data (< 20 min)."""
+    moving = [
+        s
+        for s in samples
+        if s["timer_s"] is not None and s["heart_rate"] and (s["speed_mps"] or 0) >= _MIN_PACE_SPEED
     ]
-    total = sum(t1 - t0 for t0, t1, _ in intervals)
-    if total < 1200:
+    if len(moving) < 20 or moving[-1]["timer_s"] - moving[0]["timer_s"] < 1200:
         return None
-    # Split at half of the moving time; the interval crossing it is divided.
-    halves = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]  # duration, speed*s, hr*s
-    elapsed = 0.0
-    for t0, t1, (speed, hr) in intervals:
-        dt = t1 - t0
-        first = min(dt, max(0.0, total / 2 - elapsed))
-        for half, part in ((halves[0], first), (halves[1], dt - first)):
-            half[0] += part
-            half[1] += speed * part
-            half[2] += hr * part
-        elapsed += dt
-    ef1, ef2 = (h[1] / h[2] for h in halves)
-    return (ef1 - ef2) / ef1 * 100
+    mid = (moving[0]["timer_s"] + moving[-1]["timer_s"]) / 2
+
+    def efficiency(part: list[dict[str, Any]]) -> float:
+        return sum(s["speed_mps"] for s in part) / sum(s["heart_rate"] for s in part)
+
+    first = efficiency([s for s in moving if s["timer_s"] < mid])
+    second = efficiency([s for s in moving if s["timer_s"] >= mid])
+    return (first - second) / first * 100
 
 
 def mean_of(samples: list[dict[str, Any]], key: str, min_speed: float = 0.0) -> float | None:
-    """Time-weighted mean of ``key`` over intervals with speed >= ``min_speed``."""
-    intervals = _intervals(samples, (key,), min_speed)
-    total = sum(t1 - t0 for t0, t1, _ in intervals)
-    return sum((t1 - t0) * v for t0, t1, (v,) in intervals) / total if total else None
+    vals = [s[key] for s in samples if s[key] is not None and (s["speed_mps"] or 0) >= min_speed]
+    return sum(vals) / len(vals) if vals else None
 
 
 def lap_bands(
@@ -873,7 +839,7 @@ def _derived(samples: list[dict[str, Any]], pace_mode: bool) -> str:
     kv = "".join(f"<dt>{html.escape(k)}</dt><dd>{html.escape(v)}</dd>" for k, v in items)
     return (
         f'<dl class="kv">{kv}</dl><p class="note">Computed here from the time series '
-        "(time-weighted, not Garmin values). Decoupling compares speed/HR between the first "
+        "(sample means, not Garmin values). Decoupling compares speed/HR between the first "
         "and second half; it is only meaningful for steady efforts.</p>"
     )
 
