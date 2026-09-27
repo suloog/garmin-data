@@ -206,6 +206,16 @@ def test_derived_metrics_are_time_weighted_for_irregular_samples():
     assert web.mean_of(samples, "gap", 1.0) == moving
 
 
+def test_decoupling_interpolates_interval_crossing_half_time():
+    # Two samples only: speed rises linearly 2 -> 4 m/s over 40 min, HR constant.
+    # First half averages 2.5 m/s, second 3.5 m/s: (2.5 - 3.5) / 2.5 = -40%.
+    samples = [
+        {"timer_s": 0.0, "heart_rate": 140.0, "speed_mps": 2.0},
+        {"timer_s": 2400.0, "heart_rate": 140.0, "speed_mps": 4.0},
+    ]
+    assert abs(web.decoupling(samples) - -40.0) < 1e-9
+
+
 def test_lap_bands_locate_work_laps_by_start_time():
     from datetime import datetime, timedelta
 
