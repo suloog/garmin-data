@@ -79,30 +79,15 @@ uv run garmin-data sync --from 2026-09-01 --to 2026-09-25 --fill-gaps
 uv run garmin-data status                   # what is stored, runs, gaps, recent errors
 uv run garmin-data rebuild                  # rebuild normalized tables from raw (offline, atomic)
 uv run garmin-data export --format parquet  # or csv; to <data_dir>/exports
-uv run garmin-data web                      # activity list + details at http://127.0.0.1:8765/
+uv run garmin-data web                      # activity list at http://127.0.0.1:8765/
 ```
 
 `garmin-data web` is a minimal, read-only local view: a table of activities
 (newest first) with distance, duration, pace or speed, HR, cadence, elevation,
 training effect and load, and Garmin RPE/feel. Search (name or type), filters
 (type, date range), column sorting and pagination all run in SQL, so only the
-current page is read from the database; the summary totals cover every match.
-Click an activity name for its detail page:
-
-- summary tiles (distance, times, pace, HR, cadence/stride, elevation, power,
-  training effect/load, weather, Garmin RPE/feel);
-- pace (or speed), heart rate, cadence and elevation over time, one chart each,
-  with a shared crosshair and value readout; work laps of structured workouts are
-  shaded;
-- time in HR zones;
-- a lap chart (bar width = distance, height = pace, work laps highlighted) and a lap
-  table, plus Garmin's typed splits (workout steps, run/walk segments);
-- a few values derived from the time series at display time, not stored: average
-  grade-adjusted pace, pace while moving, and Pa:HR aerobic decoupling (speed/HR in
-  the first vs. second half, only meaningful for steady runs);
-- your manual notes for the activity.
-
-It uses only the Python standard library, binds to localhost by default and has no
+current page is read from the database; the summary totals cover every match. It
+uses only the Python standard library, binds to localhost by default and has no
 authentication, so don't expose it on a network (`--host`/`--port` to change).
 If a sync holds the database lock, the page asks you to retry.
 
@@ -180,7 +165,7 @@ Data layers inside `garmin.duckdb`:
 raw_payload            Garmin JSON exactly as returned (immutable source of truth)
     │   normalize (pure functions; `rebuild` re-runs them offline)
     ▼
-activity, activity_lap, activity_split, activity_hr_zone, activity_sample, daily_health
+activity, activity_lap, activity_split, activity_hr_zone, daily_health
     │
     ▼
 v_*  views             derived metrics, computed at query time
@@ -194,7 +179,6 @@ annotation             manual notes, independent of Garmin data
 | `activity_hr_zone` | activity_id, zone | Time in HR zones. |
 | `activity_lap` | activity_id, sequence | Device laps with `step_type`, the raw Garmin `intensityType`, workout step index and repeat group. |
 | `activity_split` | activity_id, sequence | Garmin "typed splits": one row per executed workout step (`INTERVAL_ACTIVE`, `INTERVAL_RECOVERY`, …, with the laps it covers) and detected run/walk segments (`RWD_RUN`, `RWD_WALK`). |
-| `activity_sample` | activity_id, sample_index | Time series from Garmin's activity details: timer/elapsed time, distance, HR, speed, grade-adjusted speed, cadence, stride, vertical oscillation/ratio, ground contact time, power, elevation, respiration, lat/lon. Garmin downsamples to at most ~2000 samples per activity (about every 1–2 s for a one-hour run; sparser for long ones), so sample spacing is not constant. |
 | `daily_health` | date | One row per day (including rest days): resting HR, HRV, sleep, Body Battery, Training Readiness and its factors, recovery time, stress, steps, calories, weight, VO2max. |
 | `annotation` | id | Manual notes. |
 | `sync_run` | run_id | Each sync run: requested date range and final status (`ok`/`partial`/`aborted`). |
@@ -228,7 +212,7 @@ Endpoints used (python-garminconnect method → `raw_payload.endpoint`):
 | Data | Method | Requests |
 |---|---|---|
 | activity list | `get_activities_by_date` | per calendar month |
-| activity detail | `get_activity`, `get_activity_splits`, `get_activity_typed_splits`, `get_activity_hr_in_timezones`, `get_activity_weather`, `get_activity_gear`, `get_activity_details` | per activity |
+| activity detail | `get_activity`, `get_activity_splits`, `get_activity_typed_splits`, `get_activity_hr_in_timezones`, `get_activity_weather`, `get_activity_gear` | per activity |
 | workout definition | `get_workout_by_id` | per structured workout |
 | devices | `get_devices` | per sync |
 | daily | `get_user_summary`, `get_sleep_data`, `get_training_readiness` | per day |
@@ -252,7 +236,7 @@ Known limitations:
   `workout_step_index` (from the watch) is always kept.
 - **Repeat iterations** are not numbered. Use `activity_split` (one row per executed
   step) or consecutive `workout_step_index` values.
-- **Request volume.** About 3 requests per day plus about 8 per activity. A year of
+- **Request volume.** About 3 requests per day plus about 7 per activity. A year of
   history is roughly 1,500–3,000 requests, so run long backfills in pieces
   (e.g. month by month). The default pause between requests is 0.5 s.
 - **Monthly range requests.** Range endpoints are always requested for a whole
@@ -277,14 +261,9 @@ Known limitations:
 - **Recovery time** is taken from the morning Training Readiness entry, in minutes.
 - **Sleep timestamps.** Some accounts (reported for connect.garmin.cn) have wrong
   local sleep timestamps, so only the `*GMT` values are used.
-- **Time series** come from `get_activity_details` (Garmin's chart data, max 2000
-  samples, GPS polyline not requested), not from the FIT file, so they are not
-  full per-second data. Each payload is ~0.5 MB of JSON. Activities synced before
-  this endpoint was added are backfilled by the next `garmin-data sync` without
-  arguments (they are treated as gaps), or by `sync --from/--to` over their range.
-- **Not included:** FIT files and training-plan data. The raw layer and
-  `activity_id` keys are designed so that FIT downloads (`download_activity`) can
-  be added as a separate table/directory later.
+- **Not included in V1:** FIT files, per-second time series, and training-plan data.
+  The raw layer and `activity_id` keys are designed so that FIT downloads
+  (`download_activity`) can be added as a separate table/directory later.
 
 ## Development
 

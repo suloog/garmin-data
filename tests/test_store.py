@@ -23,19 +23,4 @@ def test_migrations_rerun_safely(settings):
 
     Store(settings.db_path).close()
     with Store(settings.db_path) as s:
-        assert s.con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
-
-
-def test_v1_database_is_migrated(settings):
-    import duckdb
-
-    from garmin_data.store import Store, _migrations
-
-    con = duckdb.connect(str(settings.db_path))
-    con.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
-    con.execute(_migrations()[0])
-    con.execute("INSERT INTO schema_version VALUES (1)")
-    con.close()
-    with Store(settings.db_path) as s:
-        assert s.con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
-        assert s.con.execute("SELECT count(*) FROM activity_sample").fetchone()[0] == 0
+        assert s.con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 1

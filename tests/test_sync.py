@@ -19,7 +19,6 @@ def counts(store):
         "activity_lap",
         "activity_split",
         "activity_hr_zone",
-        "activity_sample",
         "daily_health",
     )
     return {t: store.con.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
@@ -32,7 +31,6 @@ def test_sync_populates_all_layers(store, settings):
     c = counts(store)
     assert c["activity"] == 3
     assert c["activity_lap"] == 21
-    assert c["activity_sample"] == 15
     assert c["daily_health"] == 30  # whole month: range payloads are monthly
     row = store.con.execute(
         "SELECT weight_kg, vo2max, training_readiness FROM daily_health WHERE date='2026-09-01'"

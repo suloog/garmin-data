@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fakes import activity_detail, activity_list_item, details, splits, workout
+from fakes import activity_detail, activity_list_item, splits, workout
 
 from garmin_data.normalize import activities as na
 
@@ -105,26 +105,3 @@ def test_laps_use_workout_only_when_trustworthy():
 def test_laps_empty_payload():
     assert na.normalize_laps(1, None) == []
     assert na.normalize_laps(1, {"lapDTOs": None}) == []
-
-
-def test_samples_map_metrics_by_descriptor_index():
-    rows = na.normalize_samples(1, details(1, "2026-09-10", n=3))
-    assert [r["sample_index"] for r in rows] == [0, 1, 2]
-    r = rows[1]
-    assert r["timestamp_utc"] == datetime(2026, 9, 10, 5, 0, 10)
-    assert r["timer_s"] == 10.0 and r["heart_rate"] == 131.0 and r["distance_m"] == 33.3
-    assert r["cadence"] == 170.0 and r["stride_length_m"] == 1.1
-    assert r["power"] is None and r["latitude"] is None  # metric not recorded
-
-
-def test_samples_empty_and_unexpected():
-    import pytest
-
-    from garmin_data.normalize._util import UnexpectedPayload
-
-    assert na.normalize_samples(1, None) == []
-    assert na.normalize_samples(1, {}) == []
-    with pytest.raises(UnexpectedPayload):
-        na.normalize_samples(1, {"activityId": 1, "detailsAvailable": True})
-    with pytest.raises(UnexpectedPayload):
-        na.normalize_samples(1, {"metricDescriptors": [{"key": "x"}], "activityDetailMetrics": []})

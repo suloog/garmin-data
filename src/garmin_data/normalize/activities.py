@@ -8,8 +8,6 @@ Field names verified against real python-garminconnect 0.3.16 responses:
 - ``get_activity_typed_splits``: ``splits`` with ``type`` and ``lapIndexes``
 - ``get_activity_hr_in_timezones``: list of ``zoneNumber`` / ``secsInZone`` / ``zoneLowBoundary``
 - ``get_activity_weather``: ``temp`` / ``apparentTemp`` in Fahrenheit
-- ``get_activity_details``: ``metricDescriptors`` (``key`` / ``metricsIndex``) and
-  ``activityDetailMetrics[].metrics`` (positional values)
 - ``get_workout_by_id``: ``workoutSegments[].workoutSteps[]`` (ExecutableStepDTO / RepeatGroupDTO)
 """
 
@@ -320,69 +318,4 @@ def normalize_typed_splits(activity_id: int, payload: dict | None) -> list[dict[
                 **_segment_stats(split),
             }
         )
-    return rows
-
-
-# -- time series -------------------------------------------------------------------
-
-# activity_sample column -> (Garmin metric key, scale factor)
-_SAMPLE_METRICS = {
-    "timer_s": ("sumDuration", 1.0),
-    "elapsed_s": ("sumElapsedDuration", 1.0),
-    "moving_s": ("sumMovingDuration", 1.0),
-    "distance_m": ("sumDistance", 1.0),
-    "heart_rate": ("directHeartRate", 1.0),
-    "speed_mps": ("directSpeed", 1.0),
-    "grade_adjusted_speed_mps": ("directGradeAdjustedSpeed", 1.0),
-    "cadence": ("directDoubleCadence", 1.0),
-    "stride_length_m": ("directStrideLength", 0.01),  # centimetres
-    "vertical_oscillation_cm": ("directVerticalOscillation", 1.0),
-    "vertical_ratio": ("directVerticalRatio", 1.0),
-    "ground_contact_ms": ("directGroundContactTime", 1.0),
-    "power": ("directPower", 1.0),
-    "elevation_m": ("directElevation", 1.0),
-    "respiration_rate": ("directRespirationRate", 1.0),
-    "latitude": ("directLatitude", 1.0),
-    "longitude": ("directLongitude", 1.0),
-}
-
-
-def normalize_samples(activity_id: int, payload: dict | None) -> list[dict[str, Any]]:
-    """One ``activity_sample`` row per entry of ``activityDetailMetrics``.
-
-    Metrics are positional; ``metricDescriptors`` maps each metric key to its
-    index, and the set of metrics differs between activities and devices.
-    """
-    if is_empty(payload):
-        return []
-    expect_keys(payload, "activity_details", ("metricDescriptors", "activityDetailMetrics"))
-    descriptors = payload["metricDescriptors"] or []
-    samples = payload["activityDetailMetrics"] or []
-    expect(descriptors, list, "activity_details.metricDescriptors")
-    expect(samples, list, "activity_details.activityDetailMetrics")
-    index: dict[str, int] = {}
-    for d in descriptors:
-        expect_keys(d, "activity_details.metricDescriptors[]", ("key", "metricsIndex"))
-        i = integer(d["metricsIndex"])
-        if i is not None:
-            index[d["key"]] = i
-    ts_index = index.get("directTimestamp")
-
-    rows = []
-    for pos, sample in enumerate(samples):
-        expect_keys(sample, "activity_details.activityDetailMetrics[]", ("metrics",))
-        values = sample["metrics"]
-        expect(values, list, "activity_details.activityDetailMetrics[].metrics")
-
-        def value(i: int | None, values: list = values) -> Any:
-            return values[i] if i is not None and 0 <= i < len(values) else None
-
-        row: dict[str, Any] = {
-            "activity_id": activity_id,
-            "sample_index": pos,
-            "timestamp_utc": timestamp(integer(value(ts_index))),
-        }
-        for col, (key, factor) in _SAMPLE_METRICS.items():
-            row[col] = scaled(value(index.get(key)), factor)
-        rows.append(row)
     return rows

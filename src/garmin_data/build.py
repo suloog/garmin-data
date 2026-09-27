@@ -29,7 +29,6 @@ NORMALIZED_TABLES = (
     "activity_lap",
     "activity_split",
     "activity_hr_zone",
-    "activity_sample",
     "daily_health",
 )
 
@@ -98,7 +97,6 @@ def _compute_activity(
         "activity_hr_zone": na.normalize_hr_zones(
             aid, store.latest_raw(src.ACTIVITY_HR_ZONES, key)
         ),
-        "activity_sample": na.normalize_samples(aid, store.latest_raw(src.ACTIVITY_DETAILS, key)),
     }
 
 
@@ -136,7 +134,7 @@ def build_activities(
                 continue
             rows["activity"]["normalized_at"] = now
             store.upsert("activity", [rows["activity"]])
-            for table in ("activity_lap", "activity_split", "activity_hr_zone", "activity_sample"):
+            for table in ("activity_lap", "activity_split", "activity_hr_zone"):
                 store.replace_children(table, aid, rows[table])
             report.activities += 1
     return report

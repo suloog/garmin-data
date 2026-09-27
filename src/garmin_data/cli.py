@@ -118,7 +118,6 @@ def cmd_status(settings: Settings, args: argparse.Namespace) -> int:
             ("activity", "date"),
             ("activity_lap", None),
             ("activity_split", None),
-            ("activity_sample", None),
             ("daily_health", "date"),
             ("annotation", "date"),
             ("raw_payload", None),
