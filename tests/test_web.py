@@ -185,8 +185,25 @@ def test_derived_metrics():
         {"timer_s": float(t), "heart_rate": 140.0 if t < 1500 else 150.0, "speed_mps": 3.0}
         for t in range(0, 3000, 10)
     ]
-    assert round(web.decoupling(steady), 1) == 6.7  # same speed, higher HR later
+    assert 6.6 < web.decoupling(steady) < 6.7  # same speed, higher HR later
     assert web.decoupling(steady[:50]) is None  # too short
+
+
+def test_derived_metrics_are_time_weighted_for_irregular_samples():
+    # Dense 1 s samples at 4 m/s for 100 s, then sparse samples at 2 m/s up to
+    # 20 min, then 20 min at 3 m/s; HR constant. Equal weighting per sample
+    # would let the dense part dominate the first half (+21%).
+    def sample(t: float, speed: float) -> dict:
+        return {"timer_s": t, "heart_rate": 140.0, "speed_mps": speed, "gap": speed}
+
+    samples = [sample(float(t), 4.0) for t in range(100)]
+    samples += [sample(float(t), 2.0) for t in range(100, 1201, 100)]
+    samples += [sample(float(t), 3.0) for t in range(1210, 2401, 10)]
+    dec = web.decoupling(samples)
+    assert -42 < dec < -35  # first half is slower: ~2.2 vs 3.0 m/s
+    moving = web.mean_of(samples, "speed_mps", 1.0)
+    assert 2.55 < moving < 2.65  # time-weighted, equal weighting gives ~3.3
+    assert web.mean_of(samples, "gap", 1.0) == moving
 
 
 def test_lap_bands_locate_work_laps_by_start_time():
